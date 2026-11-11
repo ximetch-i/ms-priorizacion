@@ -1,0 +1,190 @@
+org: luisnieva
+service: ms-priorizacion
+
+provider:
+  name: aws
+  runtime: python3.12
+  timeout: 30
+  iam:
+    role: arn:aws:iam::${aws:accountId}:role/LabRole
+  environment:
+    TOPIC_PRIORIZACION_ARN: arn:aws:sns:${aws:region}:${aws:accountId}:tema-priorizacion
+
+functions:
+  listarCriterios:
+    name: ListarCriterios
+    handler: listar_criterios.lambda_handler
+    events:
+      - http:
+          path: /criterios/listar
+          method: post
+          cors: true
+          integration: lambda
+  modificarCriterio:
+    name: ModificarCriterio
+    handler: modificar_criterio.lambda_handler
+    events:
+      - http:
+          path: /criterios/modificar
+          method: put
+          cors: true
+          integration: lambda
+  evaluarProyecto:
+    name: EvaluarProyecto
+    handler: evaluar_proyecto.lambda_handler
+    events:
+      - http:
+          path: /priorizacion/evaluar
+          method: post
+          cors: true
+          integration: lambda
+  buscarPuntaje:
+    name: BuscarPuntaje
+    handler: buscar_puntaje.lambda_handler
+    events:
+      - http:
+          path: /puntajes/buscar
+          method: post
+          cors: true
+          integration: lambda
+  listarRanking:
+    name: ListarRanking
+    handler: listar_ranking.lambda_handler
+    events:
+      - http:
+          path: /puntajes/ranking
+          method: post
+          cors: true
+          integration: lambda
+  procesarEventosPriorizacion:
+    name: ProcesarEventosPriorizacion
+    handler: procesar_eventos_priorizacion.lambda_handler
+    events:
+      - sqs:
+          arn: !GetAtt ColaPriorizacionEventos.Arn
+          batchSize: 1
+
+resources:
+  Resources:
+    # ---------- Tablas DynamoDB ----------
+    TablaCriterios:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: t_criterios
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: tenant_id
+            AttributeType: S
+          - AttributeName: criterio_id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: tenant_id
+            KeyType: HASH
+          - AttributeName: criterio_id
+            KeyType: RANGE
+    TablaPuntajes:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: t_puntajes
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: tenant_id
+            AttributeType: S
+          - AttributeName: proyecto_id
+            AttributeType: S
+          - AttributeName: puntaje
+            AttributeType: N
+          - AttributeName: portafolio_clave
+            AttributeType: S
+        KeySchema:
+          - AttributeName: tenant_id
+            KeyType: HASH
+          - AttributeName: proyecto_id
+            KeyType: RANGE
+        GlobalSecondaryIndexes:
+          # Ranking de todo el tenant, ordenado por puntaje
+          - IndexName: gsi_ranking
+            KeySchema:
+              - AttributeName: tenant_id
+                KeyType: HASH
+              - AttributeName: puntaje
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          # Ranking dentro de un portafolio (portafolio_clave = tenant#portafolio_id)
+          - IndexName: gsi_portafolio_puntaje
+            KeySchema:
+              - AttributeName: portafolio_clave
+                KeyType: HASH
+              - AttributeName: puntaje
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+
+    # ---------- SNS: tema que publica este microservicio ----------
+    TemaPriorizacion:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: tema-priorizacion
+
+    # Proyectos actualiza la prioridad (ALTA, MEDIA, BAJA) con PuntajeActualizado
+    SuscripcionProyectosAPriorizacion:
+      Type: AWS::SNS::Subscription
+      Properties:
+        TopicArn: !Ref TemaPriorizacion
+        Protocol: sqs
+        Endpoint: arn:aws:sqs:${aws:region}:${aws:accountId}:cola-proyectos-eventos
+        FilterPolicy:
+          tipo_evento:
+            - PuntajeActualizado
+
+    # ---------- SQS: cola que consume este microservicio ----------
+    ColaPriorizacionEventosDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: cola-priorizacion-eventos-dlq
+    ColaPriorizacionEventos:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: cola-priorizacion-eventos
+        VisibilityTimeout: 180
+        RedrivePolicy:
+          deadLetterTargetArn: !GetAtt ColaPriorizacionEventosDLQ.Arn
+          maxReceiveCount: 2
+    PoliticaColaPriorizacion:
+      Type: AWS::SQS::QueuePolicy
+      Properties:
+        Queues:
+          - !Ref ColaPriorizacionEventos
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: sns.amazonaws.com
+              Action: sqs:SendMessage
+              Resource: !GetAtt ColaPriorizacionEventos.Arn
+              Condition:
+                ArnLike:
+                  aws:SourceArn: arn:aws:sns:${aws:region}:${aws:accountId}:tema-*
+
+    # Los temas tema-proyectos y tema-presupuestos los crean ms-proyectos y ms-presupuestos
+    # (hay que desplegarlos antes). Solo pasan los eventos que Priorizacion procesa.
+    SuscripcionProyectoCreado:
+      Type: AWS::SNS::Subscription
+      Properties:
+        TopicArn: arn:aws:sns:${aws:region}:${aws:accountId}:tema-proyectos
+        Protocol: sqs
+        Endpoint: !GetAtt ColaPriorizacionEventos.Arn
+        FilterPolicy:
+          tipo_evento:
+            - ProyectoCreado
+    SuscripcionPresupuestoExcedido:
+      Type: AWS::SNS::Subscription
+      Properties:
+        TopicArn: arn:aws:sns:${aws:region}:${aws:accountId}:tema-presupuestos
+        Protocol: sqs
+        Endpoint: !GetAtt ColaPriorizacionEventos.Arn
+        FilterPolicy:
+          tipo_evento:
+            - PresupuestoExcedido
