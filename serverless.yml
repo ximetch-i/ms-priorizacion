@@ -11,49 +11,37 @@ provider:
     TOPIC_PRIORIZACION_ARN: arn:aws:sns:${aws:region}:${aws:accountId}:tema-priorizacion
 
 functions:
-  listarCriterios:
-    name: ListarCriterios
-    handler: listar_criterios.lambda_handler
-    events:
-      - http:
-          path: /criterios/listar
-          method: post
-          cors: true
-          integration: lambda
-  modificarCriterio:
-    name: ModificarCriterio
-    handler: modificar_criterio.lambda_handler
-    events:
-      - http:
-          path: /criterios/modificar
-          method: put
-          cors: true
-          integration: lambda
-  evaluarProyecto:
-    name: EvaluarProyecto
-    handler: evaluar_proyecto.lambda_handler
+  puntajes:
+    name: Puntajes
+    handler: puntajes.lambda_handler
     events:
       - http:
           path: /priorizacion/evaluar
           method: post
           cors: true
           integration: lambda
-  buscarPuntaje:
-    name: BuscarPuntaje
-    handler: buscar_puntaje.lambda_handler
-    events:
       - http:
           path: /puntajes/buscar
           method: post
           cors: true
           integration: lambda
-  listarRanking:
-    name: ListarRanking
-    handler: listar_ranking.lambda_handler
-    events:
       - http:
           path: /puntajes/ranking
           method: post
+          cors: true
+          integration: lambda
+  criterios:
+    name: Criterios
+    handler: criterios.lambda_handler
+    events:
+      - http:
+          path: /criterios/listar
+          method: post
+          cors: true
+          integration: lambda
+      - http:
+          path: /criterios/modificar
+          method: put
           cors: true
           integration: lambda
   procesarEventosPriorizacion:

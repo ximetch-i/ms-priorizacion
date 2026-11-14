@@ -9,18 +9,18 @@ Microservicio de Priorizacion de proyectos del SaaS PPM. Calcula un puntaje por 
    Se suscribe a los temas `tema-proyectos` y `tema-presupuestos`, y a la cola `cola-proyectos-eventos`.
 2. `serverless deploy`
 
-Crea: 6 Lambdas, tablas `t_criterios` y `t_puntajes` (2 GSI), tema `tema-priorizacion`,
+Crea: 3 Lambdas, tablas `t_criterios` y `t_puntajes` (2 GSI), tema `tema-priorizacion`,
 cola `cola-priorizacion-eventos` (+ DLQ) y 3 suscripciones SNS -> SQS con filtro.
 
 ## Rutas (todas piden la cabecera `Authorization`)
 
 | Ruta | Lambda | Cuerpo |
 | --- | --- | --- |
-| POST /criterios/listar | ListarCriterios | (vacio) |
-| PUT /criterios/modificar | ModificarCriterio | criterio_id (valor, urgencia, costo, riesgo), peso (0 a 1) |
-| POST /priorizacion/evaluar | EvaluarProyecto | proyecto_id, valores: {valor, urgencia, costo, riesgo} (1 a 5) |
-| POST /puntajes/buscar | BuscarPuntaje | proyecto_id |
-| POST /puntajes/ranking | ListarRanking | portafolio_id?, limit?, last_key? |
+| POST /criterios/listar | Criterios (`criterios.py`) | (vacio) |
+| PUT /criterios/modificar | Criterios (`criterios.py`) | criterio_id (valor, urgencia, costo, riesgo), peso (0 a 1) |
+| POST /priorizacion/evaluar | Puntajes (`puntajes.py`) | proyecto_id, valores: {valor, urgencia, costo, riesgo} (1 a 5) |
+| POST /puntajes/buscar | Puntajes (`puntajes.py`) | proyecto_id |
+| POST /puntajes/ranking | Puntajes (`puntajes.py`) | portafolio_id?, limit?, last_key? |
 
 ## Como se calcula
 
@@ -52,3 +52,13 @@ Si cambias los pesos, los puntajes ya guardados no se recalculan hasta evaluar d
 3. `POST /proyectos/buscar` en ms-proyectos: `prioridad` = ALTA (unos segundos despues).
 4. `POST /puntajes/ranking` con `{}`.
 5. Exceder el presupuesto del proyecto (ver ms-presupuestos): su puntaje baja por el criterio costo.
+
+## Estructura de Lambdas (3)
+
+Una Lambda atiende varios endpoints: el codigo elige la funcion segun la ruta (`requestPath` de API Gateway).
+
+- `puntajes.py` -> Lambda **Puntajes**: /priorizacion/evaluar, /puntajes/buscar, /puntajes/ranking
+- `criterios.py` -> Lambda **Criterios**: /criterios/listar, /criterios/modificar
+- `procesar_eventos_priorizacion.py` (trigger SQS).
+
+`comun.py` es codigo compartido (token, respuestas, helpers), no es una Lambda.

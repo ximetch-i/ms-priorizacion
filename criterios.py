@@ -1,8 +1,24 @@
+# Lambda Criterios (ms-priorizacion). Una sola Lambda atiende varios endpoints.
+# API Gateway (integration: lambda) manda en "requestPath" la ruta del recurso.
+from comun import NO_AUTORIZADO, INVERTIDOS, respuesta, autenticar, cargar_pesos, dynamodb, PESOS_DEFAULT
 from decimal import Decimal
-from comun import (dynamodb, NO_AUTORIZADO, PESOS_DEFAULT, INVERTIDOS, respuesta,
-                   autenticar)
 
-def lambda_handler(event, context):
+
+def listar_criterios(event, context):
+    # Proteger el Lambda
+    sesion = autenticar(event)
+    if not sesion:
+        return NO_AUTORIZADO
+    tenant_id = sesion['tenant_id']
+    # Proceso: pesos guardados del tenant, o los por defecto si nunca los cambio
+    pesos = cargar_pesos(tenant_id)
+    criterios = [{'criterio_id': c, 'peso': p, 'invertido': c in INVERTIDOS}
+                 for c, p in pesos.items()]
+    # Salida (json)
+    return respuesta(200, items=criterios, suma_pesos=sum(pesos.values()))
+
+
+def modificar_criterio(event, context):
     # Proteger el Lambda
     sesion = autenticar(event)
     if not sesion:
@@ -28,3 +44,16 @@ def lambda_handler(event, context):
     )
     # Salida (json): los puntajes ya calculados no se recalculan; los nuevos usan este peso
     return respuesta(200, criterio=r['Attributes'])
+
+
+RUTAS = {
+    '/criterios/listar': listar_criterios,
+    '/criterios/modificar': modificar_criterio,
+}
+
+def lambda_handler(event, context):
+    ruta = (event or {}).get('requestPath')
+    funcion = RUTAS.get(ruta)
+    if funcion is None:
+        return {'statusCode': 404, 'mensaje': 'Ruta no encontrada: %s' % ruta}
+    return funcion(event, context)
