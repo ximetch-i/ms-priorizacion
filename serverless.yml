@@ -51,6 +51,7 @@ functions:
       - sqs:
           arn: !GetAtt ColaPriorizacionEventos.Arn
           batchSize: 1
+          maximumConcurrency: 2
 
 resources:
   Resources:
