@@ -1,5 +1,4 @@
 import json
-import time
 import boto3
 from datetime import datetime
 from decimal import Decimal
@@ -38,35 +37,19 @@ def _token(event):
     return headers.get('authorization')
 
 
-# Cache en memoria del contenedor: evita leer t_tokens_acceso en cada peticion
-_CACHE_TOKENS = {}
-TTL_TOKEN = 60
-
-
 def autenticar(event):
-    """Valida el token leyendo t_tokens_acceso directo (sin invocar otra Lambda: cada
-    peticion usa 1 sola Lambda). Devuelve {'tenant_id', 'usuario_id', 'rol'} o None."""
     headers = {k.lower(): v for k, v in (event.get('headers') or {}).items()}
     token = headers.get('authorization')
     if not token:
         return None
-    ahora = time.time()
-    guardado = _CACHE_TOKENS.get(token)
-    if guardado and guardado[0] > ahora:
-        return guardado[1]
     item = dynamodb.Table('t_tokens_acceso').get_item(Key={'token': token}).get('Item')
     if not item or datetime.now().strftime('%Y-%m-%d %H:%M:%S') > item['expires']:
         return None
-    datos = {'statusCode': 200, 'tenant_id': item['tenant_id'],
-             'usuario_id': item['usuario_id'], 'rol': item['rol']}
-    if len(_CACHE_TOKENS) > 200:
-        _CACHE_TOKENS.clear()
-    _CACHE_TOKENS[token] = (ahora + TTL_TOKEN, datos)
-    return datos
+    return {'statusCode': 200, 'tenant_id': item['tenant_id'],
+            'usuario_id': item['usuario_id'], 'rol': item['rol']}
 
 
 def buscar_proyecto(event, proyecto_id):
-    """Lee el proyecto de t_proyectos (mismo tenant del token), sin invocar otra Lambda. Devuelve el dict o None."""
     sesion = autenticar(event)
     if not sesion:
         return None
