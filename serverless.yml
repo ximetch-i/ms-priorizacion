@@ -139,7 +139,7 @@ resources:
         VisibilityTimeout: 180
         RedrivePolicy:
           deadLetterTargetArn: !GetAtt ColaPriorizacionEventosDLQ.Arn
-          maxReceiveCount: 2
+          maxReceiveCount: 5
     PoliticaColaPriorizacion:
       Type: AWS::SQS::QueuePolicy
       Properties:
